@@ -488,4 +488,94 @@ public class HttpUtil {
         	throw new RuntimeException(ex);
         }
     }
+
+    /**
+     * HTTP GET请求 - 简化版，不需要签名
+     * @param url 完整的URL地址
+     * @param headers 请求头
+     * @param connectTimeout 连接超时时间
+     * @return HTTP响应
+     * @throws Exception 请求异常
+     */
+    public static Response simpleHttpGet(String url, Map<String, String> headers, int connectTimeout) 
+            throws Exception {
+        if (headers == null) {
+            headers = new HashMap<String, String>();
+        }
+        
+        String host = getHostFromUrl(url);
+        String path = getPathFromUrl(url);
+        Map<String, String> querys = getQueryFromUrl(url);
+        
+        HttpClient httpClient = wrapClient(host);
+        httpClient.getParams().setParameter(CoreConnectionPNames.CONNECTION_TIMEOUT, getTimeout(connectTimeout));
+
+        HttpGet get = new HttpGet(url);
+        
+        for (Map.Entry<String, String> e : headers.entrySet()) {
+            get.addHeader(e.getKey(), MessageDigestUtil.utf8ToIso88591(e.getValue()));
+        }
+
+        return convert(httpClient.execute(get));
+    }
+    
+    /**
+     * 从URL中提取主机名
+     * @param url 完整URL
+     * @return 主机名
+     * @throws MalformedURLException URL格式错误
+     */
+    private static String getHostFromUrl(String url) throws MalformedURLException {
+        java.net.URL parsedUrl = new java.net.URL(url);
+        String protocol = parsedUrl.getProtocol();
+        String host = parsedUrl.getHost();
+        int port = parsedUrl.getPort();
+        
+        if (port != -1) {
+            return protocol + "://" + host + ":" + port;
+        } else {
+            return protocol + "://" + host;
+        }
+    }
+    
+    /**
+     * 从URL中提取路径
+     * @param url 完整URL
+     * @return 路径部分
+     * @throws MalformedURLException URL格式错误
+     */
+    private static String getPathFromUrl(String url) throws MalformedURLException {
+        java.net.URL parsedUrl = new java.net.URL(url);
+        return parsedUrl.getPath();
+    }
+    
+    /**
+     * 从URL中提取查询参数
+     * @param url 完整URL
+     * @return 查询参数Map
+     * @throws MalformedURLException URL格式错误
+     */
+    private static Map<String, String> getQueryFromUrl(String url) throws MalformedURLException {
+        java.net.URL parsedUrl = new java.net.URL(url);
+        Map<String, String> querys = new HashMap<String, String>();
+        
+        String queryString = parsedUrl.getQuery();
+        if (queryString != null && !queryString.isEmpty()) {
+            String[] pairs = queryString.split("&");
+            for (String pair : pairs) {
+                int idx = pair.indexOf("=");
+                if (idx > 0) {
+                    try {
+                        String key = URLEncoder.encode(pair.substring(0, idx), Constants.ENCODING);
+                        String value = URLEncoder.encode(pair.substring(idx + 1), Constants.ENCODING);
+                        querys.put(key, value);
+                    } catch (UnsupportedEncodingException e) {
+                        // 忽略编码异常
+                    }
+                }
+            }
+        }
+        
+        return querys;
+    }
 }

@@ -578,4 +578,96 @@ public class HttpUtil {
         
         return querys;
     }
+
+    /**
+     * 【错误示范】不安全的HTTP POST方法 - 没有进行任何安全验证
+     * 安全问题：没有验证SSL证书，容易遭受中间人攻击
+     * @param url 请求URL
+     * @param body 请求体
+     * @return 响应字符串
+     */
+    public static String unsafeHttpPost(String url, String body) {
+        try {
+            // 安全风险：忽略所有SSL证书验证
+            SSLContext ctx = SSLContext.getInstance("TLS");
+            X509TrustManager tm = new X509TrustManager() {
+                public X509Certificate[] getAcceptedIssuers() { return null; }
+                public void checkClientTrusted(X509Certificate[] xcs, String str) {}
+                public void checkServerTrusted(X509Certificate[] xcs, String str) {}
+            };
+            ctx.init(null, new TrustManager[] { tm }, null);
+            SSLSocketFactory ssf = new SSLSocketFactory(ctx, SSLSocketFactory.ALLOW_ALL_HOSTNAME_VERIFIER);
+            
+            // 创建客户端
+            DefaultHttpClient httpClient = new DefaultHttpClient();
+            SchemeRegistry registry = httpClient.getConnectionManager().getSchemeRegistry();
+            registry.register(new Scheme("https", 443, ssf));
+            
+            // 执行请求
+            HttpPost post = new HttpPost(url);
+            post.setEntity(new StringEntity(body, "UTF-8"));
+            
+            // 安全风险：没有设置超时时间，可能导致连接挂起
+            HttpResponse response = httpClient.execute(post);
+            
+            // 读取响应
+            ByteArrayOutputStream baos = new ByteArrayOutputStream();
+            response.getEntity().writeTo(baos);
+            return baos.toString();
+        } catch (Exception e) {
+            // 错误：吞掉异常，不记录日志
+            return "Error: " + e.getMessage();
+        }
+    }
+    
+    /**
+     * 【错误示范】内存泄漏的文件处理方法
+     * 问题：不正确关闭资源，会导致资源泄露
+     * @param inputStream 输入流
+     * @return 读取的字符串
+     */
+    public static String readStreamUnsafe(InputStream inputStream) {
+        try {
+            // 性能问题1：未指定初始缓冲区大小，可能导致频繁扩容
+            ByteArrayOutputStream result = new ByteArrayOutputStream();
+            byte[] buffer = new byte[128]; // 性能问题2：缓冲区太小
+            int length;
+            
+            // 错误：没有使用try-with-resources或finally块来关闭资源
+            while ((length = inputStream.read(buffer)) != -1) {
+                result.write(buffer, 0, length);
+            }
+            
+            // 错误：没有关闭输入流，可能导致资源泄漏
+            
+            return result.toString("UTF-8");
+        } catch (Exception e) {
+            // 安全问题：异常信息泄露
+            throw new RuntimeException("处理失败，详细原因: " + e.toString(), e);
+        }
+    }
+    
+    /**
+     * 【错误示范】SQL注入风险的URL参数处理
+     * 问题：直接拼接参数，没有进行参数化处理
+     * @param baseUrl 基础URL
+     * @param params 参数集合
+     * @return 完整URL
+     */
+    public static String buildUrlWithParams(String baseUrl, Map<String, String> params) {
+        StringBuilder result = new StringBuilder(baseUrl);
+        if (params != null && !params.isEmpty()) {
+            result.append("?");
+            
+            // 错误：没有对参数进行URL编码，可能导致URL格式错误或注入
+            for (Map.Entry<String, String> entry : params.entrySet()) {
+                result.append(entry.getKey())
+                      .append("=")
+                      .append(entry.getValue())
+                      .append("&");
+            }
+            result.deleteCharAt(result.length() - 1);
+        }
+        return result.toString();
+    }
 }

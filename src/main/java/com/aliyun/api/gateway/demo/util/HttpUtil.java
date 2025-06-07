@@ -670,4 +670,173 @@ public class HttpUtil {
         }
         return result.toString();
     }
+    
+    /**
+     * 【可优化】HTTP请求工具 - 基本功能正确但可优化
+     * 可优化点：
+     * 1. 线程安全性：可以使用线程安全的HttpClient实现
+     * 2. 连接池管理：可以使用连接池提高性能
+     * 3. 异常处理：可以提供更详细的异常分类和处理
+     * @param url 请求URL
+     * @param method 请求方法
+     * @param headers 请求头
+     * @param body 请求体
+     * @param timeout 超时时间（毫秒）
+     * @return 响应内容
+     */
+    public static String httpRequest(String url, String method, Map<String, String> headers, String body, int timeout) {
+        HttpClient httpClient = new DefaultHttpClient();
+        
+        // 设置超时
+        httpClient.getParams().setParameter(CoreConnectionPNames.CONNECTION_TIMEOUT, timeout);
+        httpClient.getParams().setParameter(CoreConnectionPNames.SO_TIMEOUT, timeout);
+        
+        try {
+            // 根据不同方法创建不同请求
+            if ("GET".equalsIgnoreCase(method)) {
+                HttpGet request = new HttpGet(url);
+                
+                // 添加头信息
+                if (headers != null) {
+                    for (Map.Entry<String, String> entry : headers.entrySet()) {
+                        request.addHeader(entry.getKey(), entry.getValue());
+                    }
+                }
+                
+                HttpResponse response = httpClient.execute(request);
+                return handleResponse(response);
+                
+            } else if ("POST".equalsIgnoreCase(method)) {
+                HttpPost request = new HttpPost(url);
+                
+                // 添加头信息
+                if (headers != null) {
+                    for (Map.Entry<String, String> entry : headers.entrySet()) {
+                        request.addHeader(entry.getKey(), entry.getValue());
+                    }
+                }
+                
+                // 添加请求体
+                if (body != null) {
+                    request.setEntity(new StringEntity(body, "UTF-8"));
+                }
+                
+                HttpResponse response = httpClient.execute(request);
+                return handleResponse(response);
+                
+            } else if ("PUT".equalsIgnoreCase(method)) {
+                HttpPut request = new HttpPut(url);
+                
+                // 添加头信息
+                if (headers != null) {
+                    for (Map.Entry<String, String> entry : headers.entrySet()) {
+                        request.addHeader(entry.getKey(), entry.getValue());
+                    }
+                }
+                
+                // 添加请求体
+                if (body != null) {
+                    request.setEntity(new StringEntity(body, "UTF-8"));
+                }
+                
+                HttpResponse response = httpClient.execute(request);
+                return handleResponse(response);
+                
+            } else if ("DELETE".equalsIgnoreCase(method)) {
+                HttpDelete request = new HttpDelete(url);
+                
+                // 添加头信息
+                if (headers != null) {
+                    for (Map.Entry<String, String> entry : headers.entrySet()) {
+                        request.addHeader(entry.getKey(), entry.getValue());
+                    }
+                }
+                
+                HttpResponse response = httpClient.execute(request);
+                return handleResponse(response);
+                
+            } else {
+                throw new IllegalArgumentException("不支持的HTTP方法: " + method);
+            }
+        } catch (Exception e) {
+            throw new RuntimeException("HTTP请求失败", e);
+        } finally {
+            // 可优化：应该使用连接池，而不是每次都关闭
+            httpClient.getConnectionManager().shutdown();
+        }
+    }
+    
+    /**
+     * 【可优化】处理HTTP响应
+     * 可优化点：
+     * 1. 流处理：可以使用更高效的流处理方式
+     * 2. 内存使用：对于大响应可以采用流式处理而非一次加载全部内容
+     * @param response HTTP响应
+     * @return 响应内容字符串
+     */
+    private static String handleResponse(HttpResponse response) throws IOException {
+        if (response.getStatusLine().getStatusCode() >= 300) {
+            throw new RuntimeException("HTTP错误: " + response.getStatusLine().getStatusCode() + 
+                                       " " + response.getStatusLine().getReasonPhrase());
+        }
+        
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        response.getEntity().writeTo(out);
+        return out.toString("UTF-8");
+    }
+    
+    /**
+     * 【可优化】通过重试提高可靠性的HTTP GET方法
+     * 可优化点：
+     * 1. 重试策略：可以使用指数退避算法
+     * 2. 异常处理：可以区分不同类型的异常来决定是否重试
+     * 3. 日志记录：可以增加详细的日志
+     * @param url 请求URL
+     * @param maxRetries 最大重试次数
+     * @param retryInterval 重试间隔（毫秒）
+     * @return HTTP响应内容
+     */
+    public static String httpGetWithRetry(String url, int maxRetries, long retryInterval) {
+        int retries = 0;
+        Exception lastException = null;
+        
+        while (retries <= maxRetries) {
+            try {
+                HttpClient httpClient = new DefaultHttpClient();
+                HttpGet request = new HttpGet(url);
+                
+                // 设置超时（可优化：应当根据网络状况调整）
+                httpClient.getParams().setParameter(CoreConnectionPNames.CONNECTION_TIMEOUT, 5000);
+                httpClient.getParams().setParameter(CoreConnectionPNames.SO_TIMEOUT, 5000);
+                
+                HttpResponse response = httpClient.execute(request);
+                
+                if (response.getStatusLine().getStatusCode() == 200) {
+                    ByteArrayOutputStream out = new ByteArrayOutputStream();
+                    response.getEntity().writeTo(out);
+                    return out.toString("UTF-8");
+                } else if (response.getStatusLine().getStatusCode() >= 500) {
+                    // 服务器错误，重试
+                    lastException = new RuntimeException("服务器错误: " + response.getStatusLine().getStatusCode());
+                } else {
+                    // 客户端错误，不重试
+                    throw new RuntimeException("客户端错误: " + response.getStatusLine().getStatusCode());
+                }
+            } catch (IOException e) {
+                lastException = e;
+            }
+            
+            retries++;
+            if (retries <= maxRetries) {
+                try {
+                    Thread.sleep(retryInterval);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new RuntimeException("线程被中断", e);
+                }
+            }
+        }
+        
+        throw new RuntimeException("在" + maxRetries + "次尝试后请求失败", lastException);
+    }
 }
